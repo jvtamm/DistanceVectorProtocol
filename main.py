@@ -21,11 +21,11 @@ def input_parser():
 
     return parser.parse_args()
 
-def handle_commands(command, router):
-    cmd = command.split()
+def handle_commands(cmd, router):
     if(cmd[0] == 'add'): router.add_link(cmd[1], cmd[2])
     elif(cmd[0] == 'del'): router.remove_link(cmd[1])
     elif(cmd[0] == 'trace'): router.trace(cmd[1])
+    elif(cmd[0] == 'update'): router.handle_update({'source': cmd[1], 'destination': "127.0.0.1", "distances": { cmd[2]: cmd[3] }})
     else: print('Invalid command')
 
 def main():
@@ -44,11 +44,12 @@ def main():
     # message_thread = Thread(target = router.handle_messages)
 
     # Create infinite loop to handle keyboard commands
+
+    router.handle_messages()
     while(True):
         cmd = input()
-        handle_commands(cmd, router)
+        handle_commands(cmd.split(), router)
         router.handle_messages()
-        print(router.routing_table)
       
         
 if __name__ == '__main__':

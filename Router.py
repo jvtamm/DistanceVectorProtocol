@@ -50,11 +50,9 @@ class Router:
 
     def handle_messages(self):
         actions = {'data': self.handle_data, 'update': self.handle_update, 'trace': self.handle_trace}
-        # data = json.dumps({"source": "127.0.0.4", "destination": "127.0.0.2", "type": "data", "payload": "{\"source\": \"127.0.0.2\", \"destination\": \"127.0.0.4\", \"type\": \"trace\", \"hops\": [\"127.0.0.1\", \"127.0.0.4\"]}"})
-        data = json.dumps({ "type": "update","source": "127.0.1.5","destination": "127.0.0.1","distances": {"127.0.1.4": 10,"127.0.1.5": 0,"127.0.1.2": 10,"127.0.1.3": 10}})
+        data = json.dumps({"source": "127.0.0.4", "destination": "127.0.0.2", "type": "data", "payload": "{\"source\": \"127.0.0.2\", \"destination\": \"127.0.0.4\", \"type\": \"trace\", \"hops\": [\"127.0.0.1\", \"127.0.0.4\"]}"})
+        # data = json.dumps({ "type": "update","source": "127.0.1.5","destination": "127.0.0.1","distances": {"127.0.1.4": 10,"127.0.1.5": 0,"127.0.1.2": 10,"127.0.1.3": 10}})
         formated_data = json.loads(data)
-
-        print(data)
 
         if(formated_data['type'] in actions):
             action = actions[formated_data['type']]
@@ -66,6 +64,10 @@ class Router:
         else:
             print('Should check routing table, get shortest route, and send to nextHop')
             self.routing_lock.acquire()
+            
+            if (data['destination'] in self.routing_table):
+                options = self.routing_table[data['destination']].items()
+                print(options)
 
             self.routing_lock.release()
 
@@ -88,9 +90,7 @@ class Router:
 
         for key, value in data['distances'].items():
             distance = int(value) + self.link_table[data['source']]
-            print(distance)
             self.routing_table[key][data['source']].append(distance)
-            print(self.routing_table[key][data['source']])
 
         self.link_lock.release()
         self.routing_lock.release()

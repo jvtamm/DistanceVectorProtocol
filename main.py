@@ -49,7 +49,7 @@ def main():
         handle_commands(cmd, router)
         router.handle_messages()
         print(router.routing_table)
+      
         
-
 if __name__ == '__main__':
     main()

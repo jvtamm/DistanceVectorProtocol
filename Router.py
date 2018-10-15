@@ -7,9 +7,12 @@
 # http://www.mathcs.emory.edu/~cheung/Courses/558/Syllabus/13-Routing/distance-vec1.html
 # https://codereview.stackexchange.com/questions/83790/pydos-shell-simulation
 # https://github.com/gu9/testpython-/blob/master/pg01_gu9.py
-import socket, sys, json
+import socket, sys, json, logging, random
 from collections import defaultdict as dd
 from threading import Lock
+
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)
 
 class Router:
     def __init__(self, addr, period):
@@ -62,14 +65,19 @@ class Router:
         if (data['destination'] == self.udp.getsockname()[0]): 
             print(data['payload'])
         else:
-            print('Should check routing table, get shortest route, and send to nextHop')
-            self.routing_lock.acquire()
-            
-            if (data['destination'] in self.routing_table):
-                options = self.routing_table[data['destination']].items()
-                print(options)
+            gateways = self.calculate_best_route(data['destination'])
 
-            self.routing_lock.release()
+            if (gateways != []):
+                logging.info('Possible destinations: ' + str(gateways) + '. Randomly choosing...')
+                destination = random.choice(gateways)
+                logging.info('Destination: ' + destination + ' chosen')
+
+
+                self.udp.sendto(data.encode('utf-8'), (destination, 55151))
+            else:
+                logging.info('No routes to destination: ' + data['destination'])
+
+            
 
     def handle_update(self, data):
         if (data['destination'] != self.udp.getsockname()[0]):
@@ -110,3 +118,36 @@ class Router:
                 pass
 
         self.routing_lock.release()
+
+    def calculate_best_route(self, destination):
+        min_route = sys.maxsize
+        gateways = []
+
+        self.routing_lock.acquire()
+        
+        if (destination in self.routing_table):
+            routes = self.routing_table[destination].items()
+            for _, value in routes:
+                minimum = min(value)
+                if (minimum <= min_route): 
+                    min_route = minimum
+        
+        if min_route != sys.maxsize:
+            gateways = [key for key, value in routes if value == [min_route]]
+        
+        self.routing_lock.release()
+        self.link_lock.acquire()
+        
+        if (destination in self.link_table):
+            if (self.link_table[destination] < min_route):
+                min_route = self.link_table[destination]
+                gateways = [destination]
+            elif (self.link_table[destination] == min_route):
+                gateways.append(destination)
+
+        self.link_lock.release()
+
+        return gateways
+
+        
+

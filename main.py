@@ -1,6 +1,5 @@
 #! /usr/bin/python3
-
-import argparse
+import argparse, selectors, sys
 from threading import Thread
 
 from Router import Router
@@ -13,7 +12,7 @@ def input_parser():
     parser.add_argument('--addr', action = 'store', dest = 'addr', required = True, help = 'Router address')
     # parser.add_argument("addr", metavar="ADDR", type=str, help = 'Router address')
 
-    parser.add_argument('--update-period', action = 'store', dest = 'period', required = True, help = 'Router update period')
+    parser.add_argument('--update-period', action = 'store', dest = 'period', type=int, required = True, help = 'Router update period')
     # parser.add_argument("period", metavar="PERIOD", type=str, help = 'Router update period')
 
     parser.add_argument('--startup-commands', action='store', dest='init_file', default= None, required= False, help = 'File to initialize topology')
@@ -31,6 +30,7 @@ def handle_commands(cmd, router):
 def main():
     arguments = input_parser()
     router = Router(arguments.addr, arguments.period)
+    selector = selectors.DefaultSelector()
 
     if (arguments.init_file != None):
         with open(arguments.init_file) as fp:
@@ -38,19 +38,18 @@ def main():
                 cmd = line.split()
                 handle_commands(cmd, router)
 
-    # router.handle_messages()
+    selector.register(sys.stdin, selectors.EVENT_READ, handle_commands)
+    selector.register(router.udp, selectors.EVENT_READ, router.handle_messages)
 
-    # Trigger thread to receive messages
-    # message_thread = Thread(target = router.handle_messages)
-
-    # Create infinite loop to handle keyboard commands
-
-    router.handle_messages()
     while(True):
-        cmd = input()
-        handle_commands(cmd.split(), router)
-        router.handle_messages()
-      
+        events = selector.select()
+        for key, _ in events:
+            callback = key.data
+            if (key.fileobj == sys.stdin):
+                cmd = input()
+                callback(cmd.split(), router)
+            elif (key.fileobj == router.udp):
+                callback()
         
 if __name__ == '__main__':
     main()

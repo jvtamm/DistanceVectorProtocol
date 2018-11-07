@@ -14,10 +14,12 @@ class Router:
     def __init__(self, addr, period):
         self.routing_table = dd(lambda: dd(lambda: -1)) # Key -> destination addr | Value -> nextHop -> distance
         self.link_table = dict()    # Key -> destination | Value -> Weight
+        self.link_timers = dict()   # Key -> link | Value -> Timer (4*period)
         self.period = period
         
         self.link_lock = Lock()
         self.routing_lock = Lock()
+        self.timers_lock = Lock()
 
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp.bind((addr, 55151))
@@ -34,21 +36,30 @@ class Router:
         self.link_table[addr] = int(weight)
         self.link_lock.release()
 
+        self.timers_lock.acquire()
+        self.link_timers[addr] = Timer(4 * self.period, self.remove_link, [addr])
+        self.link_timers[addr].start()
+        self.timers_lock.release()
+
         logging.info(self.udp.getsockname()[0] + ' - Gateway: ' + addr + ' added to link table with weight: ' + weight)
 
     def remove_link(self, addr):
+        print('Del:' + addr)
         self.revome_routing_table_via(addr)
-
+        
         self.link_lock.acquire()
-        del self.link_table[addr]
-        self.link_lock.acquire()
+        try:
+            del self.link_table[addr]
+        except:
+            pass
+        self.link_lock.release()
         
         logging.info(self.udp.getsockname()[0] + ' - Gateway: ' + addr + ' removed from link table')
+        logging.info(self.udp.getsockname()[0] + ' - LinkTable: ' + str(self.link_table) + ' Routing Table: ' + str(self.routing_table))
 
     def trace(self, ip):
         current_router = self.udp.getsockname()[0]
         data = {'type': "trace", 'source': current_router, 'destination': ip, 'hops':[current_router]}
-        print(data)
         self.send_message(data)
 
     # Message type handlers
@@ -58,9 +69,18 @@ class Router:
         data, _ = self.udp.recvfrom(65535) 
 
         formated_data = json.loads(data)
+        addr = formated_data['source']
 
-        if (formated_data['type'] == 'trace'):
-            print(formated_data)
+        if (formated_data['type'] == 'update'):
+            self.timers_lock.acquire()
+            self.link_timers[addr].cancel()
+            del self.link_timers[addr]
+            self.link_timers[addr] = Timer(4 * self.period, self.remove_link, [addr])
+            self.link_timers[addr].start()
+            self.timers_lock.release()
+
+        # if (formated_data['type'] != 'update'):
+        #     print(formated_data)
 
         if(formated_data['type'] in actions):
             action = actions[formated_data['type']]
@@ -72,19 +92,15 @@ class Router:
         else:
             self.send_message(data)
             
-
     def handle_update(self, data):
         if (data['destination'] != self.udp.getsockname()[0]):
-            print('Destination is not this router')
+            logging.info('Destination is not this router')
             return
 
         self.link_lock.acquire()
-
-        logging.info(self.udp.getsockname()[0] +  ' - Handling update...')
-        
         
         if (not data['source'] in self.link_table):
-            print('Update message being sent through a non existing link')
+            logging.info('Update message being sent through a non existing link')
             self.link_lock.release()
             return
         
@@ -99,13 +115,13 @@ class Router:
         self.link_lock.release()
         self.routing_lock.release()
 
-
-        self.reset_timer()
+        self.timer.cancel()
+        self.timer = Timer(self.period, self.send_update)
+        self.timer.start()
 
     def handle_trace(self, data):
         current_router = self.udp.getsockname()[0]
         data['hops'].append(current_router)
-        print(data['hops'])
         
         if (data['destination'] == current_router):
             sending_data = {'type': 'data', 'source': current_router, 'destination': data['source'], 'payload': json.dumps(data)}
@@ -129,7 +145,6 @@ class Router:
                         if (gateway != link):
                             data['distances'][route] = min_route
 
-            logging.info(self.udp.getsockname()[0] + ' - Sending distances: ' + str(data['distances']) + ' to brother ' + link)
             self.udp.sendto(json.dumps(data).encode('utf-8'), (link, 55151))
 
         self.link_lock.release()
@@ -140,15 +155,12 @@ class Router:
         self.link_lock.acquire()
 
         _, gateways = self.calculate_best_route(data['destination'])
-        print(gateways)
 
         self.routing_lock.release()
         self.link_lock.release()
 
         if (gateways != []):
-            logging.info(self.udp.getsockname()[0] + ' - Possible destinations: ' + str(gateways) + '. Randomly choosing...')
             destination = random.choice(gateways)
-            logging.info(self.udp.getsockname()[0] +  ' Destination: ' + destination + ' chosen')
 
             self.udp.sendto(json.dumps(data).encode('utf-8'), (destination, 55151))
         else:
@@ -190,12 +202,3 @@ class Router:
                 gateways.append(destination)
 
         return min_route, gateways
-
-    def reset_timer(self):
-        timer = Timer(self.period, self.send_update)
-        self.timer.cancel()
-        self.timer = timer
-        self.timer.start()
-
-        
-
